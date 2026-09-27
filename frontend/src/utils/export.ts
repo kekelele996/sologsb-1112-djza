@@ -8,15 +8,17 @@ export interface BackupPayload {
   morphs: unknown[];
   sites: unknown[];
   sessions: unknown[];
+  netlogs: unknown[];
 }
 
 /** 汇总全部本地表为 JSON 备份（schema 迁移前先导出） */
 export async function buildBackup(): Promise<BackupPayload> {
-  const [rings, morphs, sites, sessions] = await Promise.all([
+  const [rings, morphs, sites, sessions, netlogs] = await Promise.all([
     db.rings.toArray(),
     db.morphs.toArray(),
     db.sites.toArray(),
     db.sessions.toArray(),
+    db.netlogs.toArray(),
   ]);
   return {
     app: 'gbbirdring',
@@ -26,6 +28,7 @@ export async function buildBackup(): Promise<BackupPayload> {
     morphs,
     sites,
     sessions,
+    netlogs,
   };
 }
 
@@ -59,7 +62,9 @@ export function downloadCsv<T extends Record<string, unknown>>(
 }
 
 /** 恢复 JSON 备份 */
-export async function importBackup(text: string): Promise<{ rings: number; morphs: number; sites: number; sessions: number }> {
+export async function importBackup(
+  text: string,
+): Promise<{ rings: number; morphs: number; sites: number; sessions: number; netlogs: number }> {
   const payload = JSON.parse(text) as Partial<BackupPayload>;
   if (!payload || payload.app !== 'gbbirdring') {
     throw new Error('备份文件格式不匹配（缺少 app=gbbirdring 标记）');
@@ -69,13 +74,15 @@ export async function importBackup(text: string): Promise<{ rings: number; morph
     morphs: payload.morphs?.length ?? 0,
     sites: payload.sites?.length ?? 0,
     sessions: payload.sessions?.length ?? 0,
+    netlogs: payload.netlogs?.length ?? 0,
   };
-  await db.transaction('rw', db.rings, db.morphs, db.sites, db.sessions, async () => {
-    await Promise.all([db.rings.clear(), db.morphs.clear(), db.sites.clear(), db.sessions.clear()]);
+  await db.transaction('rw', db.rings, db.morphs, db.sites, db.sessions, db.netlogs, async () => {
+    await Promise.all([db.rings.clear(), db.morphs.clear(), db.sites.clear(), db.sessions.clear(), db.netlogs.clear()]);
     if (payload.rings?.length) await db.rings.bulkPut(payload.rings as never[]);
     if (payload.morphs?.length) await db.morphs.bulkPut(payload.morphs as never[]);
     if (payload.sites?.length) await db.sites.bulkPut(payload.sites as never[]);
     if (payload.sessions?.length) await db.sessions.bulkPut(payload.sessions as never[]);
+    if (payload.netlogs?.length) await db.netlogs.bulkPut(payload.netlogs as never[]);
   });
   return counts;
 }

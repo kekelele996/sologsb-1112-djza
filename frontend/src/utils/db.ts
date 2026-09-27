@@ -3,18 +3,20 @@ import type { RingRecord } from '../types/ring-record';
 import type { Morphometrics } from '../types/morphometrics';
 import type { BirdSite } from '../types/bird-site';
 import type { SurveySession } from '../types/session';
+import type { NetLog } from '../types/net-log';
 
 /** IndexedDB 库名（浏览器本地存储，无后端） */
 export const DB_NAME = 'gbbirdring-db';
 
 /** 当前 schema 版本，与 db.version(n) 对应 */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 class BirdRingDB extends Dexie {
   rings!: Table<RingRecord, string>;
   morphs!: Table<Morphometrics, string>;
   sites!: Table<BirdSite, string>;
   sessions!: Table<SurveySession, string>;
+  netlogs!: Table<NetLog, string>;
   meta!: Table<{ key: string; value: string }, string>;
 
   constructor() {
@@ -49,6 +51,16 @@ class BirdRingDB extends Dexie {
             }
           });
       });
+
+    // v3：新增网次安全台账表 netlogs（开网/收网登记），仅加表，无字段迁移。
+    this.version(3).stores({
+      rings: 'id, ringNo, speciesCn, status, ringDate, siteId, sessionId, [speciesCn+ringDate]',
+      morphs: 'id, ringId, measuredAt',
+      sites: 'id, siteNo, habitat, name',
+      sessions: 'id, sessionNo, date, siteId, closed',
+      netlogs: 'id, sessionId, netNo',
+      meta: 'key',
+    });
   }
 }
 

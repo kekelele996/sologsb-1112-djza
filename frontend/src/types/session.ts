@@ -19,6 +19,10 @@ export interface SurveySession {
   windForce: number;
   /** 是否已关闭（关闭后出统计） */
   closed: boolean;
+  /** 是否已确认现场无遗留（全部收网后现场确认，关闭批次的前置条件） */
+  siteCleared?: boolean;
+  /** 现场确认时间（ISO 时间串） */
+  clearedAt?: string;
   /** 主调查人 */
   leader: string;
   /** 备注 */

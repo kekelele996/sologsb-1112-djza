@@ -25,7 +25,7 @@ docker compose down
 | 构建 | Vite 6（`npm run build` 含 `vue-tsc --noEmit` 类型检查） |
 | UI | Element Plus 2 |
 | 路由 | Vue Router 4（5 条业务路由 + 404） |
-| 状态 | Pinia（ringStore / measureStore / siteStore / sessionStore） |
+| 状态 | Pinia（ringStore / measureStore / siteStore / sessionStore / netLogStore） |
 | 地图 | 高德地图 JS API（可选，按需动态加载）+ 本地 SVG 网格退化视图 |
 | 存储 | IndexedDB（Dexie，库名 `gbbirdring-db`） |
 | 托管 | nginx:alpine（多阶段构建，SPA try_files + gzip） |
@@ -55,9 +55,10 @@ npm run build    # 类型检查 + 生产构建
 │   ├── nginx.conf             # try_files SPA 回退 + gzip
 │   ├── public/favicon.svg
 │   └── src/
-│       ├── types/             # ring-record / morphometrics / bird-site / session（+ ui.ts）
-│       ├── stores/            # ringStore / measureStore / siteStore / sessionStore
+│       ├── types/             # ring-record / morphometrics / bird-site / session / net-log（+ ui.ts）
+│       ├── stores/            # ringStore / measureStore / siteStore / sessionStore / netLogStore
 │       ├── components/common/ # SiteMap / MeasureInput / RingCodeInput / SpeciesPicker / StatBadge / FilterBar / EmptyPanel
+│       ├── components/session/# NetLedgerDialog（网次安全台账）
 │       ├── hooks/             # useSiteFilter / useAmap
 │       ├── pages/             # RingBoard / RingList / MeasureEntry / SiteList / SessionList
 │       ├── router/index.ts    # 路由表
@@ -72,11 +73,18 @@ npm run build    # 类型检查 + 生产构建
 | `/rings` | 环志记录 | 金属环号 + 彩环双段录入与自动查重，重复时提示并跳转历史记录 |
 | `/measure` | 量度测量 | 6 项量度带单位与范围校验，与同鸟种历史均值比对给出偏离提示 |
 | `/sites` | 鸟点台账 | 地图 / SVG 网格双模式切换，表单拾取坐标即时落点，点位间距提示 |
-| `/sessions` | 调查批次 | 观测条件录入，关闭批次后统计鸟种数、初捕数与重捕数 |
+| `/sessions` | 调查批次 | 观测条件录入 + 网次安全台账（开网/收网登记、大风收网提示、现场确认），全部收网并确认无遗留后才能关闭批次，关闭后统计鸟种数、初捕数与重捕数 |
 
 ## 数据存储说明
 
-- 全部数据存于浏览器 IndexedDB（Dexie，库名 `gbbirdring-db`），表：`rings`、`morphs`、`sites`、`sessions`、`meta`。
-- `db.version(1)` 建表声明索引；`db.version(2).upgrade(...)` 为环志表增加 `[speciesCn+ringDate]` 复合索引并回填历史彩环字段。升级前可用顶栏「导出备份」导出全量 JSON。
-- 首次打开且表为空时写入示例数据（6 个鸟点、4 个调查批次、18 条环志记录与 14 条量度）。
+- 全部数据存于浏览器 IndexedDB（Dexie，库名 `gbbirdring-db`），表：`rings`、`morphs`、`sites`、`sessions`、`netlogs`、`meta`。
+- `db.version(1)` 建表声明索引；`db.version(2).upgrade(...)` 为环志表增加 `[speciesCn+ringDate]` 复合索引并回填历史彩环字段；`db.version(3)` 新增网次安全台账表 `netlogs`（仅加表，无字段迁移）。升级前可用顶栏「导出备份」导出全量 JSON。
+- 首次打开且表为空时写入示例数据（6 个鸟点、4 个调查批次、19 条网次台账、18 条环志记录与 14 条量度）。
 - 容器无状态：不使用数据库服务、不挂载命名卷，`docker compose down` 后数据仍留在浏览器中。
+
+## 网次安全台账
+
+- 每次开网登记网号、开网时间、风力与看护人；收网时补录收网时间、收鸟数与网具状态（完好 / 轻微破损 / 破损需修 / 遗失）。
+- 同一网号未收网时不能再次开网（台账与 store 层双重拦截）。
+- 计划网次用完或风力升到 5 级时，批次列表与台账页给出醒目提示并列出待收网号。
+- 所有网收齐后才能在台账中「确认现场无遗留」，确认后台账锁定（可撤销）；全部收网 + 现场确认是关闭批次的前置条件，关闭后的台账仍可查看（只读）。

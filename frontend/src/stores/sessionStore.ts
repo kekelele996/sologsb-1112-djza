@@ -3,6 +3,7 @@ import { db } from '../utils/db';
 import { uid } from '../utils/id';
 import { toPlain } from '../utils/plain';
 import type { SurveySession } from '../types/session';
+import { useNetLogStore } from './netLogStore';
 
 export interface SessionInput {
   sessionNo: string;
@@ -75,10 +76,39 @@ export const useSessionStore = defineStore('session', {
       this.sessions = this.sessions.map((session) => (session.id === id ? next : session));
     },
 
-    /** 关闭批次后出统计 */
+    /** 确认现场无遗留：全部网具收回后才能确认，确认后台账锁定 */
+    async confirmSiteCleared(id: string) {
+      const current = this.sessions.find((session) => session.id === id);
+      if (!current || current.closed || current.siteCleared) return;
+      const openNets = useNetLogStore().openBySession(id);
+      if (openNets.length > 0) {
+        throw new Error(`还有 ${openNets.length} 张网未收（${openNets.map((log) => log.netNo).join('、')}），不能确认现场无遗留`);
+      }
+      const next: SurveySession = { ...current, siteCleared: true, clearedAt: new Date().toISOString() };
+      await db.sessions.put(toPlain(next));
+      this.sessions = this.sessions.map((session) => (session.id === id ? next : session));
+    },
+
+    /** 撤销现场确认（批次关闭前允许更正，撤销后可继续登记开/收网） */
+    async revokeSiteCleared(id: string) {
+      const current = this.sessions.find((session) => session.id === id);
+      if (!current || current.closed || !current.siteCleared) return;
+      const next: SurveySession = { ...current, siteCleared: undefined, clearedAt: undefined };
+      await db.sessions.put(toPlain(next));
+      this.sessions = this.sessions.map((session) => (session.id === id ? next : session));
+    },
+
+    /** 关闭批次：所有网收完并确认现场无遗留后才能关闭，关闭后出统计 */
     async closeSession(id: string) {
       const current = this.sessions.find((session) => session.id === id);
       if (!current) return;
+      const openNets = useNetLogStore().openBySession(id);
+      if (openNets.length > 0) {
+        throw new Error(`还有 ${openNets.length} 张网未收：${openNets.map((log) => log.netNo).join('、')}，请先收网`);
+      }
+      if (!current.siteCleared) {
+        throw new Error('尚未确认现场无遗留，请先在网次台账中完成现场确认');
+      }
       const next: SurveySession = { ...current, closed: true, endedAt: current.endedAt || new Date().toTimeString().slice(0, 5) };
       await db.sessions.put(toPlain(next));
       this.sessions = this.sessions.map((session) => (session.id === id ? next : session));

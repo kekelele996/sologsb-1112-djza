@@ -3,6 +3,7 @@ import type { BirdSite } from '../types/bird-site';
 import type { SurveySession } from '../types/session';
 import type { RingRecord } from '../types/ring-record';
 import type { Morphometrics } from '../types/morphometrics';
+import type { NetCondition, NetLog } from '../types/net-log';
 import { SPECIES_CATALOG } from './stats';
 
 const DAY = 86_400_000;
@@ -20,9 +21,9 @@ export const SEED_SITES: BirdSite[] = [
 ];
 
 export const SEED_SESSIONS: SurveySession[] = [
-  { id: 'session-001', sessionNo: '2024-A01', date: dateDaysAgo(21), siteId: 'site-001', startedAt: '05:00', endedAt: '11:00', netRounds: 6, cloudCover: 2, windForce: 2, closed: true, leader: '韩雪' },
-  { id: 'session-002', sessionNo: '2024-A02', date: dateDaysAgo(14), siteId: 'site-002', startedAt: '05:20', endedAt: '11:30', netRounds: 6, cloudCover: 5, windForce: 3, closed: true, leader: '韩雪' },
-  { id: 'session-003', sessionNo: '2024-A03', date: dateDaysAgo(7), siteId: 'site-003', startedAt: '05:10', endedAt: '11:00', netRounds: 6, cloudCover: 1, windForce: 2, closed: true, leader: '郑海' },
+  { id: 'session-001', sessionNo: '2024-A01', date: dateDaysAgo(21), siteId: 'site-001', startedAt: '05:00', endedAt: '11:00', netRounds: 6, cloudCover: 2, windForce: 2, closed: true, siteCleared: true, clearedAt: isoDaysAgo(21), leader: '韩雪' },
+  { id: 'session-002', sessionNo: '2024-A02', date: dateDaysAgo(14), siteId: 'site-002', startedAt: '05:20', endedAt: '11:30', netRounds: 6, cloudCover: 5, windForce: 3, closed: true, siteCleared: true, clearedAt: isoDaysAgo(14), leader: '韩雪' },
+  { id: 'session-003', sessionNo: '2024-A03', date: dateDaysAgo(7), siteId: 'site-003', startedAt: '05:10', endedAt: '11:00', netRounds: 6, cloudCover: 1, windForce: 2, closed: true, siteCleared: true, clearedAt: isoDaysAgo(7), leader: '郑海' },
   { id: 'session-004', sessionNo: '2024-A04', date: dateDaysAgo(2), siteId: 'site-001', startedAt: '05:30', endedAt: '11:00', netRounds: 6, cloudCover: 8, windForce: 4, closed: false, leader: '郑海', remark: '风力偏大，网次仅完成 4 次' },
 ];
 
@@ -80,6 +81,53 @@ export const SEED_RINGS: RingRecord[] = [
   ring(18, 'C-30103', '无', '黄鹡鸰', '幼', 'session-004', 'site-001', '6 号网', 4, '初捕', '韩雪', 2),
 ];
 
+function netlog(
+  index: number,
+  sessionId: string,
+  netNo: string,
+  openedAt: string,
+  windForce: number,
+  keeper: string,
+  closedAt?: string,
+  birdCount?: number,
+  netCondition?: NetCondition,
+): NetLog {
+  return {
+    id: `netlog-${String(index).padStart(3, '0')}`,
+    sessionId,
+    netNo,
+    openedAt,
+    windForce,
+    keeper,
+    closedAt,
+    birdCount,
+    netCondition,
+  };
+}
+
+/** 网次安全台账示例：已关闭批次全部收网并清点；session-004 留 2 张开网演示大风收网提示 */
+export const SEED_NETLOGS: NetLog[] = [
+  netlog(1, 'session-001', '3 号网', '05:10', 2, '韩雪', '06:30', 2, '完好'),
+  netlog(2, 'session-001', '5 号网', '05:15', 2, '郑海', '06:30', 1, '完好'),
+  netlog(3, 'session-001', '7 号网', '06:40', 2, '韩雪', '08:00', 1, '完好'),
+  netlog(4, 'session-001', '2 号网', '08:10', 3, '郑海', '09:30', 1, '完好'),
+  netlog(5, 'session-001', '3 号网', '09:40', 3, '韩雪', '10:50', 1, '完好'),
+  netlog(6, 'session-002', '1 号网', '05:30', 3, '韩雪', '07:00', 2, '完好'),
+  netlog(7, 'session-002', '4 号网', '05:40', 3, '郑海', '07:00', 1, '完好'),
+  netlog(8, 'session-002', '1 号网', '07:10', 3, '韩雪', '08:30', 1, '轻微破损'),
+  netlog(9, 'session-003', '6 号网', '05:20', 2, '郑海', '06:40', 2, '完好'),
+  netlog(10, 'session-003', '8 号网', '05:30', 2, '韩雪', '06:40', 1, '完好'),
+  netlog(11, 'session-003', '9 号网', '06:50', 2, '郑海', '08:10', 1, '完好'),
+  netlog(12, 'session-003', '10 号网', '08:20', 3, '韩雪', '09:40', 1, '完好'),
+  netlog(13, 'session-003', '6 号网', '09:50', 3, '郑海', '10:50', 1, '完好'),
+  netlog(14, 'session-004', '4 号网', '05:40', 3, '郑海', '06:50', 1, '完好'),
+  netlog(15, 'session-004', '5 号网', '05:50', 3, '韩雪', '06:50', 1, '完好'),
+  netlog(16, 'session-004', '3 号网', '07:00', 4, '郑海', '08:10', 1, '完好'),
+  netlog(17, 'session-004', '6 号网', '07:10', 4, '韩雪', '08:20', 1, '完好'),
+  netlog(18, 'session-004', '3 号网', '08:30', 5, '郑海'),
+  netlog(19, 'session-004', '5 号网', '08:40', 5, '韩雪'),
+];
+
 function morph(
   index: number,
   ringId: string,
@@ -131,18 +179,20 @@ export async function seedIfEmpty(): Promise<void> {
   if (flag) {
     return;
   }
-  const [ringCount, morphCount, siteCount, sessionCount] = await Promise.all([
+  const [ringCount, morphCount, siteCount, sessionCount, netlogCount] = await Promise.all([
     db.rings.count(),
     db.morphs.count(),
     db.sites.count(),
     db.sessions.count(),
+    db.netlogs.count(),
   ]);
 
-  await db.transaction('rw', db.rings, db.morphs, db.sites, db.sessions, db.meta, async () => {
+  await db.transaction('rw', [db.rings, db.morphs, db.sites, db.sessions, db.netlogs, db.meta], async () => {
     if (siteCount === 0) await db.sites.bulkPut(SEED_SITES);
     if (sessionCount === 0) await db.sessions.bulkPut(SEED_SESSIONS);
     if (ringCount === 0) await db.rings.bulkPut(SEED_RINGS);
     if (morphCount === 0) await db.morphs.bulkPut(SEED_MORPHS);
+    if (netlogCount === 0) await db.netlogs.bulkPut(SEED_NETLOGS);
     await db.meta.put({ key: 'seeded', value: new Date().toISOString() });
   });
 }

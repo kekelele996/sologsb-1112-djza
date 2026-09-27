@@ -5,9 +5,11 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import StatBadge from '../components/common/StatBadge.vue';
 import FilterBar from '../components/common/FilterBar.vue';
 import EmptyPanel from '../components/common/EmptyPanel.vue';
+import NetLedgerDialog from '../components/session/NetLedgerDialog.vue';
 import { useSessionStore } from '../stores/sessionStore';
 import { useSiteStore } from '../stores/siteStore';
 import { useRingStore } from '../stores/ringStore';
+import { useNetLogStore } from '../stores/netLogStore';
 import { cloudText, type SessionStats, type SurveySession } from '../types/session';
 import { buildSessionStats } from '../utils/stats';
 
@@ -15,12 +17,15 @@ const route = useRoute();
 const sessionStore = useSessionStore();
 const siteStore = useSiteStore();
 const ringStore = useRingStore();
+const netLogStore = useNetLogStore();
 
 const dialogVisible = ref(false);
 const editingId = ref('');
 // 批次统计弹窗的开关：仅在选中记录时为字符串 id，关闭时为 null。
 // 注意不要用空字符串占位——el-dialog 的 v-model 期望布尔值，非空字符串会被判定为打开。
 const detailId = ref<string | null>(null);
+// 网次安全台账弹窗的开关，约定同 detailId
+const ledgerId = ref<string | null>(null);
 const formRef = ref<FormInstance>();
 
 interface SessionForm {
@@ -139,24 +144,53 @@ async function submit() {
 }
 
 async function close(session: SurveySession) {
+  // 关闭前置校验：所有网收完 + 现场确认无遗留（store 层同样兜底）
+  const openLogs = netLogStore.openBySession(session.id);
+  if (openLogs.length > 0) {
+    const go = await ElMessageBox.confirm(
+      `还有 ${openLogs.length} 张网未收：${openLogs.map((log) => log.netNo).join('、')}。请先收网并确认现场无遗留，再关闭批次。`,
+      '存在待收网具',
+      { type: 'error', confirmButtonText: '去台账收网', cancelButtonText: '取消' },
+    )
+      .then(() => true)
+      .catch(() => false);
+    if (go) ledgerId.value = session.id;
+    return;
+  }
+  if (!session.siteCleared) {
+    const go = await ElMessageBox.confirm(
+      '所有网具已收回，但尚未确认现场无遗留。请先在网次台账中完成现场确认。',
+      '未确认现场无遗留',
+      { type: 'warning', confirmButtonText: '去台账确认', cancelButtonText: '取消' },
+    )
+      .then(() => true)
+      .catch(() => false);
+    if (go) ledgerId.value = session.id;
+    return;
+  }
   const stats = buildSessionStats(session, ringStore.rings, siteStore.siteName(session.siteId));
   const confirmed = await ElMessageBox.confirm(
-    `关闭批次 ${session.sessionNo} 后出统计：鸟种 ${stats.speciesCount} 种、初捕 ${stats.firstCount}、重捕 ${stats.recaptureCount}。确认关闭？`,
+    `现场已确认无遗留。关闭批次 ${session.sessionNo} 后出统计：鸟种 ${stats.speciesCount} 种、初捕 ${stats.firstCount}、重捕 ${stats.recaptureCount}。确认关闭？`,
     '关闭批次',
     { type: 'warning' },
   )
     .then(() => true)
     .catch(() => false);
   if (!confirmed) return;
-  await sessionStore.closeSession(session.id);
-  ElMessage.success(`批次 ${session.sessionNo} 已关闭`);
+  try {
+    await sessionStore.closeSession(session.id);
+    ElMessage.success(`批次 ${session.sessionNo} 已关闭`);
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
 }
 
 async function remove(session: SurveySession) {
-  const confirmed = await ElMessageBox.confirm(`确认删除批次 ${session.sessionNo}？`, '删除确认', { type: 'warning' })
+  const confirmed = await ElMessageBox.confirm(`确认删除批次 ${session.sessionNo}？其网次台账将一并删除。`, '删除确认', { type: 'warning' })
     .then(() => true)
     .catch(() => false);
   if (!confirmed) return;
+  await netLogStore.removeBySession(session.id);
   await sessionStore.removeSession(session.id);
   ElMessage.success('已删除');
 }
@@ -165,7 +199,10 @@ async function remove(session: SurveySession) {
 <template>
   <div>
     <h2 class="page-title">调查批次与观测条件</h2>
-    <p class="page-desc">登记批次号、鸟点、起止时间与云量风力；批次关闭后统计该批鸟种数、初捕数与重捕数。</p>
+    <p class="page-desc">
+      登记批次号、鸟点、起止时间与云量风力；每个批次附网次安全台账（开网 / 收网登记、大风收网提示），
+      所有网收完并确认现场无遗留后才能关闭批次，关闭后统计该批鸟种数、初捕数与重捕数。
+    </p>
 
     <div class="toolbar">
       <el-button type="primary" @click="openCreate">新建批次</el-button>
@@ -216,6 +253,22 @@ async function remove(session: SurveySession) {
         <el-table-column label="网次" width="80" align="right">
           <template #default="scope">{{ scope.row.session.netRounds }}</template>
         </el-table-column>
+        <el-table-column label="网次台账" width="150">
+          <template #default="scope">
+            <span>{{ netLogStore.bySession(scope.row.session.id).length }}/{{ scope.row.session.netRounds }} 次</span>
+            <el-tag
+              v-if="netLogStore.openCountBySession(scope.row.session.id) > 0"
+              type="danger"
+              size="small"
+              style="margin-left: 4px"
+            >
+              待收 {{ netLogStore.openCountBySession(scope.row.session.id) }}
+            </el-tag>
+            <el-tag v-else-if="scope.row.session.siteCleared" type="success" size="small" effect="plain" style="margin-left: 4px">
+              已清点
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="观测条件" width="140">
           <template #default="scope">
             {{ cloudText(scope.row.session.cloudCover) }}（云量 {{ scope.row.session.cloudCover }}）· {{ scope.row.session.windForce }} 级风
@@ -237,9 +290,10 @@ async function remove(session: SurveySession) {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="290" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="detailId = scope.row.session.id">统计</el-button>
+            <el-button link type="primary" @click="ledgerId = scope.row.session.id">台账</el-button>
             <el-button v-if="!scope.row.session.closed" link type="warning" @click="close(scope.row.session)">关闭批次</el-button>
             <el-button link type="primary" @click="openEdit(scope.row.session)">编辑</el-button>
             <el-button link type="danger" @click="remove(scope.row.session)">删除</el-button>
@@ -287,6 +341,8 @@ async function remove(session: SurveySession) {
         <el-button type="primary" @click="submit">保存</el-button>
       </template>
     </el-dialog>
+
+    <NetLedgerDialog v-if="ledgerId" :session-id="ledgerId" @close="ledgerId = null" />
 
     <el-dialog v-if="detailId" :model-value="true" :title="`批次统计 · ${detail?.session.sessionNo ?? ''}`" width="560px" @close="detailId = null">
       <template v-if="detail">
