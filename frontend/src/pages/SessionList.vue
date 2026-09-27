@@ -5,9 +5,11 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import StatBadge from '../components/common/StatBadge.vue';
 import FilterBar from '../components/common/FilterBar.vue';
 import EmptyPanel from '../components/common/EmptyPanel.vue';
+import NetLedgerDialog from '../components/session/NetLedgerDialog.vue';
 import { useSessionStore } from '../stores/sessionStore';
 import { useSiteStore } from '../stores/siteStore';
 import { useRingStore } from '../stores/ringStore';
+import { useNetSessionStore } from '../stores/netSessionStore';
 import { cloudText, type SessionStats, type SurveySession } from '../types/session';
 import { buildSessionStats } from '../utils/stats';
 
@@ -15,12 +17,18 @@ const route = useRoute();
 const sessionStore = useSessionStore();
 const siteStore = useSiteStore();
 const ringStore = useRingStore();
+const netSessionStore = useNetSessionStore();
 
 const dialogVisible = ref(false);
 const editingId = ref('');
 // 批次统计弹窗的开关：仅在选中记录时为字符串 id，关闭时为 null。
 // 注意不要用空字符串占位——el-dialog 的 v-model 期望布尔值，非空字符串会被判定为打开。
 const detailId = ref<string | null>(null);
+// 网次台账弹窗，同样以 id 为开关
+const ledgerId = ref<string | null>(null);
+// 关闭批次确认弹窗：需勾选「现场无遗留」才能确认
+const closeTarget = ref<SurveySession | null>(null);
+const siteCleared = ref(false);
 const formRef = ref<FormInstance>();
 
 interface SessionForm {
@@ -77,6 +85,17 @@ const averageRecapture = computed(() => {
 const totalSpecies = computed(() => new Set(ringStore.rings.map((record) => record.speciesCn)).size);
 
 const detail = computed(() => statsList.value.find((item) => item.session.id === detailId.value));
+const ledgerSession = computed(() => sessionStore.sessions.find((session) => session.id === ledgerId.value));
+const closeStats = computed(() =>
+  closeTarget.value
+    ? buildSessionStats(closeTarget.value, ringStore.rings, siteStore.siteName(closeTarget.value.siteId))
+    : null,
+);
+
+/** 批次仍在看护（未收网）的网次数，用于台账角标与关闭拦截 */
+function openNetCount(sessionId: string): number {
+  return netSessionStore.openBySession(sessionId).length;
+}
 
 function openCreate() {
   editingId.value = '';
@@ -138,25 +157,39 @@ async function submit() {
   dialogVisible.value = false;
 }
 
-async function close(session: SurveySession) {
-  const stats = buildSessionStats(session, ringStore.rings, siteStore.siteName(session.siteId));
+/** 关闭批次前核查：有网未收则拦截并列出待收网号；全部收完后仍需确认现场无遗留 */
+function openClose(session: SurveySession) {
+  const pending = netSessionStore.openBySession(session.id);
+  if (pending.length > 0) {
+    ElMessageBox.alert(
+      `还有 ${pending.length} 张网未收：${pending.map((net) => net.netNo).join('、')}。请先在网次台账中收网，再关闭批次。`,
+      '不能关闭批次',
+      { type: 'warning', confirmButtonText: '知道了' },
+    );
+    return;
+  }
+  siteCleared.value = false;
+  closeTarget.value = session;
+}
+
+async function confirmClose() {
+  const session = closeTarget.value;
+  if (!session || !siteCleared.value) return;
+  await sessionStore.closeSession(session.id);
+  ElMessage.success(`批次 ${session.sessionNo} 已关闭`);
+  closeTarget.value = null;
+}
+
+async function remove(session: SurveySession) {
   const confirmed = await ElMessageBox.confirm(
-    `关闭批次 ${session.sessionNo} 后出统计：鸟种 ${stats.speciesCount} 种、初捕 ${stats.firstCount}、重捕 ${stats.recaptureCount}。确认关闭？`,
-    '关闭批次',
+    `确认删除批次 ${session.sessionNo}？其网次台账将一并删除。`,
+    '删除确认',
     { type: 'warning' },
   )
     .then(() => true)
     .catch(() => false);
   if (!confirmed) return;
-  await sessionStore.closeSession(session.id);
-  ElMessage.success(`批次 ${session.sessionNo} 已关闭`);
-}
-
-async function remove(session: SurveySession) {
-  const confirmed = await ElMessageBox.confirm(`确认删除批次 ${session.sessionNo}？`, '删除确认', { type: 'warning' })
-    .then(() => true)
-    .catch(() => false);
-  if (!confirmed) return;
+  await netSessionStore.removeBySession(session.id);
   await sessionStore.removeSession(session.id);
   ElMessage.success('已删除');
 }
@@ -165,7 +198,9 @@ async function remove(session: SurveySession) {
 <template>
   <div>
     <h2 class="page-title">调查批次与观测条件</h2>
-    <p class="page-desc">登记批次号、鸟点、起止时间与云量风力；批次关闭后统计该批鸟种数、初捕数与重捕数。</p>
+    <p class="page-desc">
+      登记批次号、鸟点、起止时间与云量风力；每批附网次安全台账（开网 / 收网登记），全部收网并确认现场无遗留后才能关闭批次，关闭后统计鸟种数、初捕数与重捕数。
+    </p>
 
     <div class="toolbar">
       <el-button type="primary" @click="openCreate">新建批次</el-button>
@@ -237,10 +272,18 @@ async function remove(session: SurveySession) {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="230" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="scope">
             <el-button link type="primary" @click="detailId = scope.row.session.id">统计</el-button>
-            <el-button v-if="!scope.row.session.closed" link type="warning" @click="close(scope.row.session)">关闭批次</el-button>
+            <el-badge
+              :value="openNetCount(scope.row.session.id)"
+              :hidden="openNetCount(scope.row.session.id) === 0"
+              type="danger"
+              class="ledger-badge"
+            >
+              <el-button link type="primary" @click="ledgerId = scope.row.session.id">台账</el-button>
+            </el-badge>
+            <el-button v-if="!scope.row.session.closed" link type="warning" @click="openClose(scope.row.session)">关闭批次</el-button>
             <el-button link type="primary" @click="openEdit(scope.row.session)">编辑</el-button>
             <el-button link type="danger" @click="remove(scope.row.session)">删除</el-button>
           </template>
@@ -309,6 +352,21 @@ async function remove(session: SurveySession) {
         <el-button type="primary" @click="detailId = null">关闭</el-button>
       </template>
     </el-dialog>
+    <el-dialog v-if="closeTarget" :model-value="true" title="关闭批次" width="480px" @close="closeTarget = null">
+      <template v-if="closeStats">
+        <p class="close-summary">
+          关闭批次 {{ closeTarget.sessionNo }} 后出统计：鸟种 {{ closeStats.speciesCount }} 种、初捕 {{ closeStats.firstCount }}、重捕
+          {{ closeStats.recaptureCount }}。
+        </p>
+        <el-checkbox v-model="siteCleared">已巡检全部网位，确认现场无遗留网具与环志材料</el-checkbox>
+      </template>
+      <template #footer>
+        <el-button @click="closeTarget = null">取消</el-button>
+        <el-button type="warning" :disabled="!siteCleared" @click="confirmClose">确认关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <NetLedgerDialog v-if="ledgerSession" :session="ledgerSession" @close="ledgerId = null" />
   </div>
 </template>
 
@@ -338,5 +396,12 @@ async function remove(session: SurveySession) {
 }
 .block {
   border-radius: 8px;
+}
+.ledger-badge {
+  margin: 0 2px;
+}
+.close-summary {
+  margin: 0 0 12px;
+  line-height: 1.6;
 }
 </style>

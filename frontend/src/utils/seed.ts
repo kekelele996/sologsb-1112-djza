@@ -1,6 +1,7 @@
 import { db } from './db';
 import type { BirdSite } from '../types/bird-site';
 import type { SurveySession } from '../types/session';
+import type { NetSession } from '../types/net-session';
 import type { RingRecord } from '../types/ring-record';
 import type { Morphometrics } from '../types/morphometrics';
 import { SPECIES_CATALOG } from './stats';
@@ -24,6 +25,20 @@ export const SEED_SESSIONS: SurveySession[] = [
   { id: 'session-002', sessionNo: '2024-A02', date: dateDaysAgo(14), siteId: 'site-002', startedAt: '05:20', endedAt: '11:30', netRounds: 6, cloudCover: 5, windForce: 3, closed: true, leader: '韩雪' },
   { id: 'session-003', sessionNo: '2024-A03', date: dateDaysAgo(7), siteId: 'site-003', startedAt: '05:10', endedAt: '11:00', netRounds: 6, cloudCover: 1, windForce: 2, closed: true, leader: '郑海' },
   { id: 'session-004', sessionNo: '2024-A04', date: dateDaysAgo(2), siteId: 'site-001', startedAt: '05:30', endedAt: '11:00', netRounds: 6, cloudCover: 8, windForce: 4, closed: false, leader: '郑海', remark: '风力偏大，网次仅完成 4 次' },
+];
+
+/** 网次安全台账示例：session-001 全部收网（已关闭批次可回看）；session-004 留 1 张在看护的网 */
+export const SEED_NET_SESSIONS: NetSession[] = [
+  { id: 'net-001', sessionId: 'session-001', netNo: '2 号网', openedAt: '05:10', windForce: 2, keeper: '韩雪', closedAt: '07:20', birdCount: 1, netCondition: '完好' },
+  { id: 'net-002', sessionId: 'session-001', netNo: '3 号网', openedAt: '05:15', windForce: 2, keeper: '韩雪', closedAt: '07:40', birdCount: 2, netCondition: '完好' },
+  { id: 'net-003', sessionId: 'session-001', netNo: '5 号网', openedAt: '05:20', windForce: 2, keeper: '郑海', closedAt: '08:00', birdCount: 1, netCondition: '完好' },
+  { id: 'net-004', sessionId: 'session-001', netNo: '7 号网', openedAt: '05:25', windForce: 3, keeper: '郑海', closedAt: '08:20', birdCount: 1, netCondition: '完好' },
+  { id: 'net-005', sessionId: 'session-001', netNo: '9 号网', openedAt: '05:30', windForce: 3, keeper: '韩雪', closedAt: '08:40', birdCount: 0, netCondition: '完好' },
+  { id: 'net-006', sessionId: 'session-001', netNo: '11 号网', openedAt: '05:35', windForce: 3, keeper: '韩雪', closedAt: '09:00', birdCount: 0, netCondition: '破损待修', note: '网目被枯枝划破，已登记维修' },
+  { id: 'net-007', sessionId: 'session-004', netNo: '3 号网', openedAt: '05:30', windForce: 3, keeper: '郑海', closedAt: '07:10', birdCount: 1, netCondition: '完好' },
+  { id: 'net-008', sessionId: 'session-004', netNo: '4 号网', openedAt: '05:35', windForce: 3, keeper: '郑海', closedAt: '07:30', birdCount: 1, netCondition: '完好' },
+  { id: 'net-009', sessionId: 'session-004', netNo: '5 号网', openedAt: '05:40', windForce: 4, keeper: '韩雪', closedAt: '07:50', birdCount: 1, netCondition: '完好' },
+  { id: 'net-010', sessionId: 'session-004', netNo: '6 号网', openedAt: '05:45', windForce: 4, keeper: '韩雪' },
 ];
 
 function ring(
@@ -131,16 +146,18 @@ export async function seedIfEmpty(): Promise<void> {
   if (flag) {
     return;
   }
-  const [ringCount, morphCount, siteCount, sessionCount] = await Promise.all([
+  const [ringCount, morphCount, siteCount, sessionCount, netSessionCount] = await Promise.all([
     db.rings.count(),
     db.morphs.count(),
     db.sites.count(),
     db.sessions.count(),
+    db.netSessions.count(),
   ]);
 
-  await db.transaction('rw', db.rings, db.morphs, db.sites, db.sessions, db.meta, async () => {
+  await db.transaction('rw', [db.rings, db.morphs, db.sites, db.sessions, db.netSessions, db.meta], async () => {
     if (siteCount === 0) await db.sites.bulkPut(SEED_SITES);
     if (sessionCount === 0) await db.sessions.bulkPut(SEED_SESSIONS);
+    if (netSessionCount === 0) await db.netSessions.bulkPut(SEED_NET_SESSIONS);
     if (ringCount === 0) await db.rings.bulkPut(SEED_RINGS);
     if (morphCount === 0) await db.morphs.bulkPut(SEED_MORPHS);
     await db.meta.put({ key: 'seeded', value: new Date().toISOString() });
